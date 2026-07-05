@@ -104,3 +104,115 @@
             </div>
         </div>
     </div>
+    <!-- محرّك العمليات التفاعلية للوحة الإدارة العليا -->
+    <script>
+        let globalAdminPin = "";
+
+        function showToast(msg, isError = false) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderColor = isError ? 'var(--danger-red)' : 'var(--accent-gold)';
+            toast.style.color = isError ? 'var(--danger-red)' : 'var(--text-light)';
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        async function loginAdmin() {
+            const pin = document.getElementById('adminPinInput').value;
+            if (!pin) return showToast('يرجى إدخال رمز التحقق الإداري', true);
+
+            try {
+                const res = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_pin: pin })
+                });
+                const data = await res.json();
+
+                if (data && data.status === "success") {
+                    globalAdminPin = pin;
+                    document.getElementById('adminAuth').style.display = 'none';
+                    document.getElementById('adminDashboard').style.display = 'block';
+                    showToast('تمت المصادقة الأمنية لمدير النظام بنجاح');
+                    renderUsersTable(data.users);
+                } else {
+                    showToast(data?.message || 'الرمز السري للإدارة غير صحيح', true);
+                }
+            } catch (err) {
+                showToast('خطأ في الاتصال بالخادم المالي', true);
+            }
+        }
+
+        function renderUsersTable(users) {
+            const tbody = document.getElementById('usersTableBody');
+            if (!users || users.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-gray);">لا يوجد حسابات مسجلة في المنظومة حالياً</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => `
+                <tr>
+                    <td style="font-weight:600; color:var(--accent-gold);">${user.username}</td>
+                    <td style="font-family:monospace;">${parseFloat(user.balance).toLocaleString()} د.أ</td>
+                    <td style="font-family:monospace; color:${user.loans > 0 ? 'var(--danger-red)' : 'var(--text-gray)'};">${parseFloat(user.loans).toLocaleString()} د.أ</td>
+                    <td style="font-family:monospace; color:var(--text-gray); font-size:12px;">${user.user_id}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function refreshUsersList() {
+            if (!globalAdminPin) return;
+            try {
+                const res = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_pin: globalAdminPin })
+                });
+                const data = await res.json();
+                if (data && data.status === "success") {
+                    renderUsersTable(data.users);
+                }
+            } catch (err) {
+                console.error("فشل تحديث الجدول التلقائي");
+            }
+        }
+
+        async function updateUserAccount() {
+            const targetUser = document.getElementById('targetUser').value;
+            const actionType = document.getElementById('actionType').value;
+            const amount = parseFloat(document.getElementById('actionAmount').value);
+
+            if (!targetUser || isNaN(amount) || amount < 0) {
+                return showToast('يرجى إدخال اسم العميل والمبلغ بشكل صحيح', true);
+            }
+
+            try {
+                const res = await fetch('/admin/update-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_pin: globalAdminPin,
+                        target_username: targetUser,
+                        action_type: actionType,
+                        amount: amount
+                    })
+                });
+                const data = await res.json();
+
+                if (data && data.status === "success") {
+                    showToast(data.message || 'تم تحديث حساب العميل بنجاح');
+                    document.getElementById('targetUser').value = "";
+                    document.getElementById('actionAmount').value = "";
+                    refreshUsersList(); // تحديث الجدول تلقائياً لعرض الرصيد الجديد
+                } else {
+                    showToast(data?.message || 'فشلت العملية، يرجى التحقق من البيانات', true);
+                }
+            } catch (err) {
+                showToast('خطأ في إرسال الأمر المالي للسيرفر', true);
+            }
+        }
+    </script>
+</body>
+</html>
