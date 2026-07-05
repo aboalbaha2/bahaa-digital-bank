@@ -205,7 +205,7 @@ app.post('/admin/update-user', (req, res) => {
     const { admin_pin, target_username, action_type, amount } = req.body;
     const targetAmount = parseFloat(amount);
 
-    if (admin_pin !== "9999") {
+    if (admin_pin !== "0511") {
         return res.json({ status: "error", message: "غير مصرح بالعملية" });
     }
 
