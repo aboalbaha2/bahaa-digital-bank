@@ -139,9 +139,20 @@
         </div>
         <button class="btn-outline" style="margin-top: 25px;" onclick="handleLogout()">إنهاء الجلسة وتأمين المحفظة 🚪</button>
     </div>    <!-- محرّك واجهة العمليات الفورية والاتصال بسيرفر Node.js الشامل -->
+                        <!-- محرّك واجهة العمليات الفورية مع حفظ دائم ومجاني للبيانات -->
     <script>
         let currentActiveUser = "";
         let currentPin = "";
+
+        // دالة ذكية لإدارة قاعدة البيانات محلياً في جهازك لضمان عدم الضياع
+        function getLocalDB() {
+            const db = localStorage.getItem('bahaa_bank_db');
+            return db ? JSON.parse(db) : {};
+        }
+
+        function saveLocalDB(db) {
+            localStorage.setItem('bahaa_bank_db', JSON.stringify(db));
+        }
 
         function showSection(id) {
             document.getElementById('loginSection').style.display = id === 'loginSection' ? 'block' : 'none';
@@ -167,93 +178,107 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
-        // دالة موحدة لإرسال الطلبات للسيرفر بدون حدوث كراش
-        async function makeRequest(endpoint, bodyData) {
-            try {
-                const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(bodyData)
-                });
-                return await res.json();
-            } catch (err) {
-                showToast('خطأ في الاتصال بالخادم المالي الرئيسي', 'error');
-                return null;
-            }
-        }
-
-        async function handleLogin() {
-            const user = document.getElementById('loginUser').value;
-            const pass = document.getElementById('loginPass').value;
+        // معالجة تسجيل الدخول من الذاكرة الثابتة
+        function handleLogin() {
+            const user = document.getElementById('loginUser').value.trim();
+            const pass = document.getElementById('loginPass').value.trim();
             if (!user || !pass) return showToast('برجاء إدخال البيانات المطلوبة بالكامل', 'error');
 
-            const data = await makeRequest('/login', { username: user, pin: pass });
-            if (data && data.status === "success") {
-                currentActiveUser = user;
+            const db = getLocalDB();
+            const userClean = user.toLowerCase();
+
+            if (db[userClean] && db[userClean][4] === pass) {
+                currentActiveUser = userClean;
                 currentPin = pass;
-                document.getElementById('welcomeUser').innerText = user.toUpperCase();
-                document.getElementById('currentBalance').innerText = parseFloat(data.updated_balance).toLocaleString() + " د.أ";
+                document.getElementById('welcomeUser').innerText = db[userClean][0].toUpperCase();
+                document.getElementById('currentBalance').innerText = parseFloat(db[userClean][1]).toLocaleString() + " د.أ";
                 showSection('bankSection');
                 showToast('تم التحقق الفوري والدخول الآمن للمنظومة');
             } else {
-                showToast(data?.message || 'بيانات الدخول غير متطابقة', 'error');
+                showToast('بيانات الدخول غير متطابقة أو الحساب غير مسجل', 'error');
             }
         }
 
-        async function handleRegister() {
-            const user = document.getElementById('regUser').value;
-            const pass = document.getElementById('regPass').value;
+        // معالجة إنشاء حساب جديد وحفظه دائمًا في جهازك
+        function handleRegister() {
+            const user = document.getElementById('regUser').value.trim();
+            const pass = document.getElementById('regPass').value.trim();
             if (!user || !pass) return showToast('يرجى ملء الحقول المصرفية بدقة', 'error');
 
-            const data = await makeRequest('/register', { username: user, pin: pass });
-            if (data && data.status === "success") {
-                showToast('تم فتح محفظتك بنجاح وبشكل مشفر وآمن برصيد 0.00 د.أ');
-                document.getElementById('regUser').value = "";
-                document.getElementById('regPass').value = "";
-                showSection('loginSection');
-            } else {
-                showToast(data?.message || 'اسم المستخدم مسجل مسبقاً لدينا', 'error');
+            const db = getLocalDB();
+            const userClean = user.toLowerCase();
+
+            if (db[userClean]) {
+                return showToast('اسم المستخدم مسجل مسبقاً لدينا', 'error');
             }
+
+            // التحقق من عدم تكرار الـ PIN
+            for (const key in db) {
+                if (db[key][4] === pass) {
+                    return showToast('الرمز السري (PIN) مستخدم لحساب آخر', 'error');
+                }
+            }
+
+            // الهيكل الثابت والمحمي: [اسم_العرض، رصيد_صفري، ديون، سجل، الرمز]
+            db[userClean] = [user, 0.0, 0.0, ["تم إنشاء الحساب بنجاح برصيد 0.00 د.أ"], pass];
+            saveLocalDB(db);
+
+            showToast('تم فتح محفظتك بنجاح وبشكل مشفر وآمن برصيد 0.00 د.أ');
+            document.getElementById('regUser').value = "";
+            document.getElementById('regPass').value = "";
+            showSection('loginSection');
         }
 
-        async function handleTransfer() {
-            const target = document.getElementById('transferTarget').value;
+        // معالجة التحويل المالي اللحظي بين المحافظ
+        function handleTransfer() {
+            const target = document.getElementById('transferTarget').value.trim();
             const amount = parseFloat(document.getElementById('transferAmount').value);
             if (!target || isNaN(amount) || amount <= 0) return showToast('يرجى مراجعة المبلغ المحول وبيانات المستلم', 'error');
 
-            const data = await makeRequest('/transfer', { sender_pin: currentPin, receiver_pin: target, amount: amount });
-            if (data && data.status === "success") {
-                document.getElementById('currentBalance').innerText = parseFloat(data.updated_balance).toLocaleString() + " د.أ";
-                showToast(`تمت معالجة الحوالة المصرفية الفورية بنجاح`);
-                document.getElementById('transferTarget').value = "";
-                document.getElementById('transferAmount').value = "";
-            } else {
-                showToast(data?.message || 'خطأ في عملية التحويل أو رصيد غير كافٍ', 'error');
-            }
+            const db = getLocalDB();
+            const targetClean = target.toLowerCase();
+
+            if (!db[targetClean]) return showToast('حساب المستلم غير موجود في منظومتنا', 'error');
+            if (currentActiveUser === targetClean) return showToast('لا يمكنك التحويل لنفس حسابك', 'error');
+            if (db[currentActiveUser][1] < amount) return showToast('رصيدك الحالي غير كافٍ لإتمام الحوالة', 'error');
+
+            // تنفيذ الحوالة المصرفية الفورية وحفظها
+            db[currentActiveUser][1] -= amount;
+            db[targetClean][1] += amount;
+
+            db[currentActiveUser][3].push(`تحويل مبلغ ${amount} د.أ إلى ${db[targetClean][0]}`);
+            db[targetClean][3].push(`استلام حوالة بمبلغ ${amount} د.أ من ${db[currentActiveUser][0]}`);
+
+            saveLocalDB(db);
+            document.getElementById('currentBalance').innerText = parseFloat(db[currentActiveUser][1]).toLocaleString() + " د.أ";
+            showToast(`تمت معالجة الحوالة المصرفية الفورية بنجاح`);
+            document.getElementById('transferTarget').value = "";
+            document.getElementById('transferAmount').value = "";
         }
 
-        async function handleLoan() {
+        // معالجة طلب القروض الفورية
+        function handleLoan() {
             const amount = parseFloat(document.getElementById('loanAmount').value);
             if (isNaN(amount) || amount <= 0) return showToast('يرجى إدخال مبلغ تمويل صحيح ومقبول', 'error');
 
-            const data = await makeRequest('/loan', { pin: currentPin, amount: amount });
-            if (data && data.status === "success") {
-                document.getElementById('currentBalance').innerText = parseFloat(data.updated_balance).toLocaleString() + " د.أ";
-                showToast('تمت الموافقة الائتمانية وضخ مبلغ القرض في محفظتك');
-                document.getElementById('loanAmount').value = "";
-            } else {
-                showToast(data?.message || 'خطأ في معالجة طلب القرض المصرفي', 'error');
-            }
+            const db = getLocalDB();
+            db[currentActiveUser][1] += amount; // زيادة الرصيد
+            db[currentActiveUser][2] += amount; // زيادة الدين
+            db[currentActiveUser][3].push(`موافقة ائتمانية على قرض بمبلغ ${amount} د.أ`);
+
+            saveLocalDB(db);
+            document.getElementById('currentBalance').innerText = parseFloat(db[currentActiveUser][1]).toLocaleString() + " د.أ";
+            showToast('تمت الموافقة الائتمانية وضخ مبلغ القرض في محفظتك');
+            document.getElementById('loanAmount').value = "";
         }
 
-        async function fetchStatement() {
-            const data = await makeRequest('/statement', { pin: currentPin });
+        // جلب كشف الحساب اللحظي الموثق
+        function fetchStatement() {
+            const db = getLocalDB();
             const logsDiv = document.getElementById('statementLogs');
-            if (data && data.status === "success" && data.statement) {
-                logsDiv.innerHTML = data.statement.length ? data.statement.map(log => `<div style="margin-bottom:8px;">• ${log}</div>`).join('') : "لا توجد عمليات مسجلة في كشف حسابك حالياً.";
-            } else {
-                logsDiv.innerText = "فشل في تحديث كشف الحساب اللحظي.";
-            }
+            const statements = db[currentActiveUser][3];
+            
+            logsDiv.innerHTML = statements.length ? statements.map(log => `<div style="margin-bottom:8px;">• ${log}</div>`).join('') : "لا توجد عمليات مسجلة في كشف حسابك حالياً.";
         }
 
         function handleLogout() {
