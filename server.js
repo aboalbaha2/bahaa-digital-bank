@@ -175,6 +175,67 @@ app.post('/statement', (req, res) => {
     }
     return res.json({ status: "error", message: "فشل التحقق من الهوية لطلب كشف الحساب" });
 });
+// 7. بوابة الإدارة: جلب كافة الحسابات والتحكم بها (خاص بالمسؤول)
+app.post('/admin/users', (req, res) => {
+    const { admin_pin } = req.body;
+    
+    // رمز حماية لوحة الإدارة (يمكنك تغييره لأي رمز سري تريده)
+    if (admin_pin !== "9999") {
+        return res.json({ status: "error", message: "عذراً، غير مصرح لك بدخول لوحة التحكم" });
+    }
+
+    const accounts = loadAccounts();
+    const usersList = [];
+
+    // تحويل البيانات لهيكل بسيط لعرضه في جدول الإدارة
+    for (const key in accounts) {
+        usersList.push({
+            username: accounts[key][0],
+            balance: accounts[key][1],
+            loans: accounts[key][2],
+            user_id: key
+        });
+    }
+
+    return res.json({ status: "success", users: usersList });
+});
+
+// 8. بوابة الإدارة: شحن حساب مستخدم أو تعديل رصيده من قِبل المسؤول
+app.post('/admin/update-user', (req, res) => {
+    const { admin_pin, target_username, action_type, amount } = req.body;
+    const targetAmount = parseFloat(amount);
+
+    if (admin_pin !== "9999") {
+        return res.json({ status: "error", message: "غير مصرح بالعملية" });
+    }
+
+    const accounts = loadAccounts();
+    const userKey = target_username.toLowerCase().trim();
+
+    if (!accounts[userKey]) {
+        return res.json({ status: "error", message: "حساب العميل غير موجود" });
+    }
+
+    if (action_type === "deposit") {
+        accounts[userKey][1] += targetAmount;
+        accounts[userKey][3].push(`إيداع إداري مباشر بمبلغ ${targetAmount} د.أ بواسطة الإدارة`);
+    } else if (action_type === "charge") {
+        accounts[userKey][1] = targetAmount;
+        accounts[userKey][3].push(`تعديل الرصيد إدارياً إلى ${targetAmount} د.أ بواسطة الإدارة`);
+    }
+
+    saveAccounts(accounts);
+    return res.json({ status: "success", message: "تم تحديث حساب العميل بنجاح" });
+});
+
+// 9. المسار الخاص لعرض واجهة لوحة الإدارة (HTML)
+app.get('/admin', (req, res) => {
+    const adminPath = path.join(__dirname, 'templates', 'admin.html');
+    if (fs.existsSync(adminPath)) {
+        return res.sendFile(adminPath);
+    }
+    res.send('<h1 style="text-align:center; margin-top:50px;">واجهة الإدارة قيد الإعداد...</h1>');
+});
 
 // إقلاع خادم بنك البهاء الرقمي الشامل
 app.listen(PORT, () => {
