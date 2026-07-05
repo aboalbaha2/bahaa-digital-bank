@@ -105,8 +105,19 @@
         </div>
     </div>
     <!-- محرّك العمليات التفاعلية للوحة الإدارة العليا -->
+        <!-- محرّك العمليات التفاعلية للوحة الإدارة العليا بالاعتماد على الذاكرة الدائمة -->
     <script>
         let globalAdminPin = "";
+
+        // دالة قراءة قاعدة البيانات المحلية الثابتة
+        function getLocalDB() {
+            const db = localStorage.getItem('bahaa_bank_db');
+            return db ? JSON.parse(db) : {};
+        }
+
+        function saveLocalDB(db) {
+            localStorage.setItem('bahaa_bank_db', JSON.stringify(db));
+        }
 
         function showToast(msg, isError = false) {
             const container = document.getElementById('toast-container');
@@ -119,29 +130,19 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
-        async function loginAdmin() {
-            const pin = document.getElementById('adminPinInput').value;
+        function loginAdmin() {
+            const pin = document.getElementById('adminPinInput').value.trim();
             if (!pin) return showToast('يرجى إدخال رمز التحقق الإداري', true);
 
-            try {
-                const res = await fetch('/admin/users', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ admin_pin: pin })
-                });
-                const data = await res.json();
-
-                if (data && data.status === "success") {
-                    globalAdminPin = pin;
-                    document.getElementById('adminAuth').style.display = 'none';
-                    document.getElementById('adminDashboard').style.display = 'block';
-                    showToast('تمت المصادقة الأمنية لمدير النظام بنجاح');
-                    renderUsersTable(data.users);
-                } else {
-                    showToast(data?.message || 'الرمز السري للإدارة غير صحيح', true);
-                }
-            } catch (err) {
-                showToast('خطأ في الاتصال بالخادم المالي', true);
+            // رمز حماية لوحة الإدارة الثابت
+            if (pin === "9999") {
+                globalAdminPin = pin;
+                document.getElementById('adminAuth').style.display = 'none';
+                document.getElementById('adminDashboard').style.display = 'block';
+                showToast('تمت المصادقة الأمنية لمدير النظام بنجاح');
+                refreshUsersList();
+            } else {
+                showToast('الرمز السري للإدارة غير صحيح', true);
             }
         }
 
@@ -157,30 +158,30 @@
                     <td style="font-weight:600; color:var(--accent-gold);">${user.username}</td>
                     <td style="font-family:monospace;">${parseFloat(user.balance).toLocaleString()} د.أ</td>
                     <td style="font-family:monospace; color:${user.loans > 0 ? 'var(--danger-red)' : 'var(--text-gray)'};">${parseFloat(user.loans).toLocaleString()} د.أ</td>
-                    <td style="font-family:monospace; color:var(--text-gray); font-size:12px;">${user.user_id}</td>
+                    <td style="font-family:monospace; color:var(--text-gray); font-size:12px;">${user.pin}</td>
                 </tr>
             `).join('');
         }
 
-        async function refreshUsersList() {
-            if (!globalAdminPin) return;
-            try {
-                const res = await fetch('/admin/users', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ admin_pin: globalAdminPin })
-                });
-                const data = await res.json();
-                if (data && data.status === "success") {
-                    renderUsersTable(data.users);
+        function refreshUsersList() {
+            const db = getLocalDB();
+            const usersList = [];
+
+            for (const key in db) {
+                if (db[key] && Array.isArray(db[key])) {
+                    usersList.push({
+                        username: db[key][0],  // اسم العرض الأصلي
+                        balance: db[key][1],   // الرصيد الحالي
+                        loans: db[key][2],     // الديون
+                        pin: db[key][4]        // الرمز السري PIN للعميل
+                    });
                 }
-            } catch (err) {
-                console.error("فشل تحديث الجدول التلقائي");
             }
+            renderUsersTable(usersList);
         }
 
-        async function updateUserAccount() {
-            const targetUser = document.getElementById('targetUser').value;
+        function updateUserAccount() {
+            const targetUser = document.getElementById('targetUser').value.trim();
             const actionType = document.getElementById('actionType').value;
             const amount = parseFloat(document.getElementById('actionAmount').value);
 
@@ -188,30 +189,27 @@
                 return showToast('يرجى إدخال اسم العميل والمبلغ بشكل صحيح', true);
             }
 
-            try {
-                const res = await fetch('/admin/update-user', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        admin_pin: globalAdminPin,
-                        target_username: targetUser,
-                        action_type: actionType,
-                        amount: amount
-                    })
-                });
-                const data = await res.json();
+            const db = getLocalDB();
+            const userClean = targetUser.toLowerCase();
 
-                if (data && data.status === "success") {
-                    showToast(data.message || 'تم تحديث حساب العميل بنجاح');
-                    document.getElementById('targetUser').value = "";
-                    document.getElementById('actionAmount').value = "";
-                    refreshUsersList(); // تحديث الجدول تلقائياً لعرض الرصيد الجديد
-                } else {
-                    showToast(data?.message || 'فشلت العملية، يرجى التحقق من البيانات', true);
-                }
-            } catch (err) {
-                showToast('خطأ في إرسال الأمر المالي للسيرفر', true);
+            if (!db[userClean]) {
+                return showToast('حساب العميل غير موجود في المنظومة', true);
             }
+
+            // تنفيذ التعديل المالي المباشر في الذاكرة الدائمة
+            if (actionType === "deposit") {
+                db[userClean][1] += amount;
+                db[userClean][3].push(`إيداع إداري مباشر بمبلغ ${amount} د.أ بواسطة الإدارة العليا`);
+            } else if (actionType === "charge") {
+                db[userClean][1] = amount;
+                db[userClean][3].push(`تعديل الرصيد إدارياً إلى ${amount} د.أ بواسطة الإدارة العليا`);
+            }
+
+            saveLocalDB(db);
+            showToast('تم تحديث حساب العميل في الذاكرة الدائمة بنجاح');
+            document.getElementById('targetUser').value = "";
+            document.getElementById('actionAmount').value = "";
+            refreshUsersList(); // تحديث الجدول فوراً لعرض البيانات الجديدة
         }
     </script>
 </body>
