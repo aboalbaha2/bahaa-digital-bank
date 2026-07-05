@@ -180,7 +180,7 @@ app.post('/admin/users', (req, res) => {
     const { admin_pin } = req.body;
     
     // رمز حماية لوحة الإدارة (يمكنك تغييره لأي رمز سري تريده)
-    if (admin_pin !== "9999") {
+    if (admin_pin !== "0511") {
         return res.json({ status: "error", message: "عذراً، غير مصرح لك بدخول لوحة التحكم" });
     }
 
